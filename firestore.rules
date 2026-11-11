@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// قواعد أمان Firestore — مجلس القرآن الأسبوعي
+// انسخ المحتوى كاملاً والصقه في: Firebase Console → Firestore Database → Rules → Publish
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc().role == 'admin';
+    }
+
+    // حسابات المستخدمين
+    match /users/{uid} {
+      // يقرأ المستخدم ملفه الشخصي فقط، والمدير يقرأ الجميع (صفحة المستخدمون)
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      // إنشاء حساب جديد — صاحبه فقط (والتسجيل دائماً role: user من التطبيق)
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.role == 'user';
+      // تعديل نفس الحساب فقط، وممنوع تغيير الصلاحية (الحماية من رفع الصلاحيات)
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.role == resource.data.role;
+      // الحذف من داخل التطبيق غير مسموح (للحماية) — احذف من الـ Console عند الحاجة
+      allow delete: if false;
+    }
+
+    // المتطوعون للتوصيل
+    match /rides/{rideId} {
+      allow read: if signedIn();
+      // أي عضو مسجل يقدر يتطوع
+      allow create: if signedIn();
+      // الحجز/الإلغاء — يحدث داخل معاملة من التطبيق
+      allow update: if signedIn();
+      // الحذف للمدير فقط
+      allow delete: if isAdmin();
+    }
+
+    // إعدادات المجلس (أفضل قارئ/متدبر، نقطة التوقف، الموعد، الموقع)
+    match /config/{docId} {
+      allow read: if signedIn();
+      // الكتابة للمدير فقط
+      allow write: if isAdmin();
+    }
+  }
+}

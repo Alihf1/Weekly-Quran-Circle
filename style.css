@@ -1,0 +1,32 @@
+
+/*
+ * © 2026 TECHNOLOGY.ALI - جميع الحقوق محفوظة.
+ */
+.container {
+    max-width: 900px;
+    margin: 30px auto;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+body {
+    font-family: 'Cairo', sans-serif;
+    background-color: #f8fafc;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.gold-gradient {
+    background: linear-gradient(135deg, #bf953f 0%, #fcf6ba 25%, #b38728 50%, #fbf5b7 75%, #aa771c 100%);
+}
+.glass-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+}

@@ -1,0 +1,26 @@
+{
+  "name": "حلقة القرآن الاسبوعية",
+  "short_name": "حلقة القرآن",
+  "description": "مجلس تلاوة وتدبر القرآن الكريم — صلاة، تسميع، مواصلات، تكريم للأفضلين",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0e3a3a",
+  "theme_color": "#0e3a3a",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
