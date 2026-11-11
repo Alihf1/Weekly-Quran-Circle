@@ -404,9 +404,34 @@
                 <label class="block text-[11px] font-bold text-slate-600">البريد الإلكتروني</label>
                 <input type="email" id="edit-email" placeholder="example@email.com"
                        class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 outline-none">
-                <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info ml-0.5"></i> تغيير البريد في الوضع السحابي يحتاج إعادة تسجيل الدخول أحياناً</p>
+                <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info ml-0.5"></i> عند تغيير البريد سيُرسل رابط تأكيد إلى البريد الجديد — اضغطه لإتمام التغيير</p>
                 <button onclick="saveProfileChanges()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow">
                     <i class="fa-solid fa-floppy-disk ml-1"></i> حفظ التغييرات
+                </button>
+            </div>
+
+            <!-- Change Password Card (المستخدم والمدير) -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-2">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center border-b border-slate-100 pb-2">
+                    <i class="fa-solid fa-key text-amber-500 ml-2"></i> تغيير كلمة المرور
+                </h3>
+                <label class="block text-[11px] font-bold text-slate-600">كلمة المرور الحالية</label>
+                <input type="password" id="edit-current-pw" autocomplete="current-password" placeholder="••••••••"
+                       class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 outline-none">
+                <div class="grid grid-cols-1 gap-2">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600">كلمة المرور الجديدة</label>
+                        <input type="password" id="edit-new-pw" autocomplete="new-password" placeholder="6 أحرف فأكثر"
+                               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600">تأكيد كلمة المرور الجديدة</label>
+                        <input type="password" id="edit-confirm-pw" autocomplete="new-password" placeholder="••••••••"
+                               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
+                </div>
+                <button onclick="changePassword()" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow">
+                    <i class="fa-solid fa-lock ml-1"></i> حفظ كلمة المرور الجديدة
                 </button>
             </div>
 
@@ -540,7 +565,7 @@
                 <label class="block text-[11px] font-bold text-slate-600">اختيار من المستخدمين (اختياري — يملأ الاسم والصورة ويحتسب التكريم للحساب)</label>
                 <select id="admin-reader-select" onchange="handleAdminUserSelect('reader')"
                         class="w-full px-3 py-2 border border-amber-200 bg-amber-50/60 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 outline-none">
-                    <option value="">✍️ اكتب الاسم يدوياً...</option>
+                    <option value="">اختر من احد المستخدمين ...</option>
                 </select>
                 <label class="block text-[11px] font-bold text-slate-600">اسم أفضل قارئ</label>
                 <input type="text" id="admin-reader-name" placeholder="مثال: الشيخ / عبد الرحمن السالم"
@@ -579,7 +604,7 @@
                 <label class="block text-[11px] font-bold text-slate-600">اختيار من المستخدمين (اختياري — يملأ الاسم والصورة ويحتسب التكريم للحساب)</label>
                 <select id="admin-contemplator-select" onchange="handleAdminUserSelect('contemplator')"
                         class="w-full px-3 py-2 border border-emerald-200 bg-emerald-50/60 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <option value="">✍️ اكتب الاسم يدوياً...</option>
+                    <option value="">اختر من احد المستخدمين ...</option>
                 </select>
                 <label class="block text-[11px] font-bold text-slate-600">اسم أفضل متدبر</label>
                 <input type="text" id="admin-contemplator-name" placeholder="مثال: المهندس / فيصل العتيبي"
@@ -786,6 +811,22 @@
                 <i class="fa-solid fa-cloud-arrow-up text-lg"></i> تحميل صورة من الجهاز
             </button>
         </div>
+    </div>
+
+    <!-- Modal 7: Confirm Password (تأكيد الهوية قبل تغيير البريد) -->
+    <div id="password-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[80] flex items-center justify-center p-4 hidden">
+        <form onsubmit="confirmPasswordPrompt(event)" class="bg-white w-full max-w-xs rounded-2xl p-5 space-y-3 shadow-2xl">
+            <h3 class="font-bold text-slate-800 text-sm flex items-center">
+                <i class="fa-solid fa-user-lock text-emerald-600 ml-2"></i> تأكيد هويتك
+            </h3>
+            <p id="password-modal-hint" class="text-[11px] text-slate-500 leading-relaxed">أدخل كلمة المرور الحالية لحسابك</p>
+            <input type="password" id="password-modal-input" autocomplete="current-password" required
+                   placeholder="كلمة المرور" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 outline-none">
+            <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="cancelPasswordPrompt()" class="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition">إلغاء</button>
+                <button type="submit" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition"><i class="fa-solid fa-check ml-1"></i>تأكيد</button>
+            </div>
+        </form>
     </div>
 
     <!-- Modal 8: Notifications List (الإشعارات) -->
@@ -995,6 +1036,6 @@
         }
     </script>
     <!-- External JavaScript File -->
-    <script src="script.js?v=15"></script>
+    <script src="script.js?v=19"></script>
 </body>
 </html>

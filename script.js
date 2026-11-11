@@ -1,4 +1,4 @@
-﻿// =====================================================================
+// =====================================================================
 // إعداد Firebase — الصق إعداد مشروعك هنا (اتبع الخطوات في FIREBASE-SETUP.md)
 // إذا تركت القيم كما هي (YOUR_...) فالتطبيق يعمل بالوضع المحلي على هذا الجهاز
 // =====================================================================
@@ -116,6 +116,7 @@ const storageIsPersistent = (() => {
 let selectedSeatsCapacity = 5;
 let activeBookedCarId = null;
 let currentUser = null;
+let emailVerificationPending = false; // true after email change is requested (verify-before-update flow)
 
 // --- DEFAULT DATA ---
 const DEFAULT_APP_DATA = {
@@ -1460,6 +1461,35 @@ function handleAvatarFile(event) {
     reader.readAsDataURL(file);
 }
 
+// --- PASSWORD PROMPT (تأكيد الهوية — Promise-based in-app modal) ---
+let passwordPromptResolver = null;
+function promptPassword(hint) {
+    return new Promise(resolve => {
+        passwordPromptResolver = resolve;
+        const hintEl = document.getElementById('password-modal-hint');
+        if (hint && hintEl) hintEl.textContent = hint;
+        const input = document.getElementById('password-modal-input');
+        if (input) input.value = '';
+        document.getElementById('password-modal').classList.remove('hidden');
+        setTimeout(() => { const i = document.getElementById('password-modal-input'); if (i && typeof i.focus === 'function') i.focus(); }, 120);
+    });
+}
+function closePasswordPrompt() {
+    document.getElementById('password-modal').classList.add('hidden');
+}
+function confirmPasswordPrompt(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const v = document.getElementById('password-modal-input').value;
+    closePasswordPrompt();
+    if (passwordPromptResolver) passwordPromptResolver(v);
+    passwordPromptResolver = null;
+}
+function cancelPasswordPrompt() {
+    closePasswordPrompt();
+    if (passwordPromptResolver) passwordPromptResolver(null);
+    passwordPromptResolver = null;
+}
+
 // --- EDIT MY INFO (الاسم، الجوال، البريد) ---
 async function saveProfileChanges() {
     if (!currentUser) return;
@@ -1476,32 +1506,47 @@ async function saveProfileChanges() {
     const changed = { name, phone, email };
 
     if (isFirebaseReady()) {
-        // 1) If the email changed, update Firebase Auth FIRST (it may require a recent login)
+        // 1) If the email changed, re-authenticate inline then update it (no logout needed)
         if (emailChanged) {
             if (!fbAuth.currentUser) {
                 showToast('انتهت الجلسة — سجّل دخولك مجدداً', 'error');
                 return;
             }
+            const password = await promptPassword('لتغيير البريد، أعد إدخال كلمة المرور الحالية لحسابك');
+            if (password === null) return; // ألغيت — لا نحفظ أي تغيير
             try {
-                await fbAuth.currentUser.updateEmail(email);
+                const credential = firebase.auth.EmailAuthProvider.credential(currentUser.email.toLowerCase(), password);
+                await fbAuth.currentUser.reauthenticateWithCredential(credential);
+                // updateEmail() is deprecated & throws operation-not-allowed; the supported flow is
+                // verifyBeforeUpdateEmail() — it sends a verification link to the NEW address.
+                await fbAuth.currentUser.verifyBeforeUpdateEmail(email);
             } catch (err) {
                 console.error(err);
-                if (err && err.code === 'auth/requires-recent-login') {
-                    showToast('تغيير البريد يحتاج إعادة تسجيل الدخول — سجّل خروج ثم ادخل وعدّل البريد', 'error');
-                } else if (err && err.code === 'auth/email-already-in-use') {
-                    showToast('هذا البريد مسجل في حساب آخر', 'error');
+                const code = err && err.code;
+                if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                    showToast('كلمة المرور غير صحيحة', 'error');
+                } else if (code === 'auth/email-already-in-use') {
+                    showToast('هذا البريد مسجل بحساب آخر', 'error');
+                } else if (code === 'auth/operation-not-allowed') {
+                    showToast('تعذر إرسال رابط التأكيد — تأكد أن البريد الجديد صحيح وغير مستخدم', 'error');
                 } else {
                     showToast(fbErrorMessage(err), 'error');
                 }
                 return; // keep firestore consistent: abort entire change
             }
+            emailVerificationPending = true;
         }
         currentUser = { ...currentUser, ...changed };
         await persistCurrentUser();
         updateProfileUI();
         // keep admin contacts fresh if this user is an admin
         if (isAdmin()) await fbSyncAdminContact();
-        showToast('تم حفظ بياناتك ✅');
+        if (emailVerificationPending) {
+            emailVerificationPending = false;
+            showToast('تم الحفظ ✅ — أعددنا لك رابط تأكيد في بريدك الجديد، اضغطه لإتمام تغيير البريد');
+        } else {
+            showToast('تم حفظ بياناتك ✅');
+        }
         return;
     }
 
@@ -1516,6 +1561,69 @@ async function saveProfileChanges() {
     await persistCurrentUser();
     updateProfileUI();
     showToast('تم حفظ بياناتك ✅');
+}
+
+// --- CHANGE PASSWORD (المستخدم والإدارة — يعمل بالوضعين) ---
+function clearPwFields() {
+    ['edit-current-pw', 'edit-new-pw', 'edit-confirm-pw'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+async function changePassword() {
+    if (!currentUser) return;
+
+    const cur = document.getElementById('edit-current-pw').value;
+    const nw = document.getElementById('edit-new-pw').value;
+    const cf = document.getElementById('edit-confirm-pw').value;
+
+    if (!cur || !nw || !cf) { showToast('يرجى إدخال كلمة المرور الحالية والجديدة', 'error'); return; }
+    if (nw.length < 6) { showToast('كلمة المرور الجديدة 6 أحرف فأكثر', 'error'); return; }
+    if (nw !== cf) { showToast('تأكيد كلمة المرور غير مطابق', 'error'); return; }
+    if (nw === cur) { showToast('كلمة المرور الجديدة نفسها القديمة — اختر مختلفة', 'error'); return; }
+
+    if (isFirebaseReady()) {
+        if (!fbAuth.currentUser) {
+            showToast('انتهت الجلسة — سجّل دخولك مجدداً', 'error');
+            return;
+        }
+        try {
+            const credential = firebase.auth.EmailAuthProvider.credential(currentUser.email.toLowerCase(), cur);
+            await fbAuth.currentUser.reauthenticateWithCredential(credential);
+            await fbAuth.currentUser.updatePassword(nw);
+        } catch (err) {
+            console.error(err);
+            const code = err && err.code;
+            if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                showToast('كلمة المرور الحالية غير صحيحة', 'error');
+            } else if (code === 'auth/weak-password') {
+                showToast('كلمة المرور الجديدة ضعيفة جداً', 'error');
+            } else if (code === 'auth/requires-recent-login') {
+                showToast('انتهت صلاحية الجلسة — سجّل خروجك ثم دخول وحاول مرة ثانية', 'error');
+            } else {
+                showToast(fbErrorMessage(err), 'error');
+            }
+            return;
+        }
+        clearPwFields();
+        showToast('تم تغيير كلمة المرور بنجاح ✅');
+        return;
+    }
+
+    // Local mode: verify against stored password
+    const users = loadUsers();
+    const idx = users.findIndex(u => u.id === currentUser.id);
+    if (idx === -1) return;
+    if (users[idx].password !== cur) {
+        showToast('كلمة المرور الحالية غير صحيحة', 'error');
+        return;
+    }
+    users[idx].password = nw;
+    saveUsers(users);
+    currentUser.password = nw; // keep session profile consistent locally
+    clearPwFields();
+    showToast('تم تغيير كلمة المرور بنجاح ✅');
 }
 
 // --- ADMIN PANEL LOGIC ---
@@ -1961,6 +2069,7 @@ function renderUsersList() {
         const volunteerCount = stats.volunteer || 0;
         const readerCount = stats.bestReader || 0;
         const contemplatorCount = stats.bestContemplator || 0;
+        const isSelf = currentUser && String(user.id) === String(currentUser.id);
         return `
             <div class="bg-white rounded-2xl p-3 border ${isAdminUser ? 'border-amber-300' : 'border-slate-200/80'} shadow-2xs flex items-center gap-3">
                 <div class="w-12 h-12 rounded-full ${color} text-white flex items-center justify-center text-lg font-bold flex-shrink-0">
@@ -1988,6 +2097,14 @@ function renderUsersList() {
                         </span>
                     </div>
                 </div>
+                ${isSelf
+                    ? `<span title="لا يمكنك حذف حسابك الخاص" class="w-9 h-9 flex-shrink-0 bg-slate-100 text-slate-300 rounded-xl flex items-center justify-center"><i class="fa-solid fa-lock text-xs"></i></span>`
+                    : isAdminUser
+                        ? `<span title="لا يمكن حذف المديرين من داخل التطبيق (من Firebase Console فقط)" class="w-9 h-9 flex-shrink-0 bg-amber-50 text-amber-400 rounded-xl flex items-center justify-center"><i class="fa-solid fa-lock text-xs"></i></span>`
+                        : `<button onclick="deleteUserAccount('${escapeHtml(String(user.id))}')" title="حذف المستخدم"
+                            class="w-9 h-9 flex-shrink-0 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-xl flex items-center justify-center transition">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>`}
             </div>
         `;
     }).join('');
@@ -1996,12 +2113,68 @@ function renderUsersList() {
     populateAdminUserSelects();
 }
 
+// --- DELETE USER (admin only) — deletes the profile doc; account cannot log in afterwards ---
+function deleteUserAccount(userId) {
+    if (!isAdmin()) {
+        showToast('هذه الصلاحية للمدير فقط', 'error');
+        return;
+    }
+    userId = String(userId);
+    const users = isFirebaseReady() ? cachedFbUsers : loadUsers();
+    const target = users.find(u => String(u.id) === userId);
+
+    if (!target) { showToast('المستخدم غير موجود', 'error'); return; }
+    if (target.role === 'admin') { showToast('لا يمكن حذف المديرين من داخل التطبيق', 'error'); return; }
+    if (currentUser && String(currentUser.id) === userId) { showToast('لا يمكنك حذف حسابك الخاص', 'error'); return; }
+
+    showConfirm({
+        title: 'حذف المستخدم',
+        message: `هل أنت متأكد من حذف "${target.name}" (${target.email})؟ لن يتمكن من تسجيل الدخول بعد الآن.`,
+        okLabel: 'حذف',
+        onConfirm: () => executeDeleteUser(userId)
+    });
+}
+
+async function executeDeleteUser(userId) {
+    userId = String(userId);
+
+    if (isFirebaseReady()) {
+        try {
+            await fbDb.collection('users').doc(userId).delete();
+            cachedFbUsers = (cachedFbUsers || []).filter(u => String(u.id) !== userId);
+            renderUsersList();
+            showToast('تم حذف المستخدم — لن يتمكن من الدخول مرة أخرى');
+        } catch (err) {
+            console.error(err);
+            showToast('تعذر الحذف: ' + fbErrorMessage(err), 'error');
+        }
+        return;
+    }
+
+    const users = loadUsers().filter(u => String(u.id) !== userId);
+    saveUsers(users);
+    renderUsersList();
+    showToast('تم حذف المستخدم');
+}
+
 // Populate the "اختيار من المستخدمين" dropdowns in the admin panel
 function getAdminUsersList() {
     return isFirebaseReady() ? cachedFbUsers : loadUsers();
 }
 function populateAdminUserSelects() {
     if (!isAdmin()) return;
+
+    // Firebase mode: if the cached list is empty (first paint / snapshot pending),
+    // fetch the users collection directly, then re-fill
+    if (isFirebaseReady() && (!cachedFbUsers || cachedFbUsers.length === 0)) {
+        fbDb.collection('users').get()
+            .then(snap => {
+                cachedFbUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                populateAdminUserSelects();
+            })
+            .catch(err => console.error('admin user list fetch failed:', err));
+    }
+
     const users = getAdminUsersList();
     const options = users
         .slice()
@@ -2013,7 +2186,7 @@ function populateAdminUserSelects() {
         const sel = document.getElementById(`admin-${kind}-select`);
         if (!sel) return;
         const current = sel.value;
-        sel.innerHTML = `<option value="">✍️ اكتب الاسم يدوياً...</option>${options}`;
+        sel.innerHTML = `<option value="">اختر من احد المستخدمين ...</option>${options}`;
         sel.value = current; // restores if still present, else resets to manual
     });
 }

@@ -1,6 +1,7 @@
 // Service Worker — حلقة القرآن الاسبوعية
-// Enables install to home screen + basic offline caching (works only over HTTP/HTTPS)
-const CACHE = 'quran-circle-v1';
+// Strategy: NETWORK-FIRST for code (HTML/JS/CSS) so every online load gets the latest version.
+// The cache is only used as an offline fallback. Bump CACHE to purge old copies on activate.
+const CACHE = 'quran-circle-v2';
 const ASSETS = [
     './',
     './index.html',
@@ -28,6 +29,22 @@ self.addEventListener('activate', event => {
     );
 });
 
+async function networkFirst(request) {
+    try {
+        const response = await fetch(request);
+        if (response && response.ok) {
+            try {
+                const cache = await caches.open(CACHE);
+                cache.put(request, response.clone());
+            } catch (e) { /* non-cacheable — ignore */ }
+        }
+        return response;
+    } catch (e) {
+        const cached = await caches.match(request);
+        return cached || caches.match('./index.html');
+    }
+}
+
 self.addEventListener('fetch', event => {
     if (event.request.method !== 'GET') return;
 
@@ -41,16 +58,5 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    event.respondWith(
-        caches.match(event.request).then(cached => {
-            if (cached) return cached;
-            return fetch(event.request).then(response => {
-                if (response.ok && url.origin === self.location.origin) {
-                    const clone = response.clone();
-                    caches.open(CACHE).then(cache => cache.put(event.request, clone));
-                }
-                return response;
-            }).catch(() => caches.match('./index.html'));
-        })
-    );
+    event.respondWith(networkFirst(event.request));
 });

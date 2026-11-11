@@ -29,8 +29,8 @@ service cloud.firestore {
       // تعديل نفس الحساب فقط، وممنوع تغيير الصلاحية (الحماية من رفع الصلاحيات)
       allow update: if signedIn() && request.auth.uid == uid
                     && request.resource.data.role == resource.data.role;
-      // الحذف من داخل التطبيق غير مسموح (للحماية) — احذف من الـ Console عند الحاجة
-      allow delete: if false;
+      // الحذف للمدير فقط (ترقية للحساب — حذف الحساب ككل)
+      allow delete: if isAdmin();
     }
 
     // المتطوعون للتوصيل
